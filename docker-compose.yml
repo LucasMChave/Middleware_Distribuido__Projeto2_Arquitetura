@@ -1,0 +1,36 @@
+
+services:
+
+  catalogo:
+    build: ./catalogo
+    container_name: servico_catalogo
+    ports:
+      - "8001:8000"
+    networks:
+      - rede_catalogo
+
+  pedidos:
+    build: ./pedidos
+    container_name: servico_pedidos
+    ports:
+      - "8002:8000"
+    networks:
+      - rede_pedidos
+
+  pagamento:
+    build: ./pagamento
+    container_name: servico_pagamento
+    ports:
+      - "8003:8000"
+    networks:
+      - rede_pagamento
+
+networks:
+  rede_catalogo:
+    internal: true
+
+  rede_pedidos:
+    internal: true
+
+  rede_pagamento:
+    internal: true
