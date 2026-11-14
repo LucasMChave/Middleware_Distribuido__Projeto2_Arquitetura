@@ -2,7 +2,7 @@
 services:
 
   catalogo:
-    build: ./catalogo
+    build: ./Servicos/catalogo
     container_name: servico_catalogo
     ports:
       - "8001:8000"
@@ -10,7 +10,7 @@ services:
       - rede_catalogo
 
   pedidos:
-    build: ./pedidos
+    build: ./Servicos/pedidos
     container_name: servico_pedidos
     ports:
       - "8002:8000"
@@ -18,7 +18,7 @@ services:
       - rede_pedidos
 
   pagamento:
-    build: ./pagamentos
+    build: ./Servicos/pagamentos
     container_name: servico_pagamento
     ports:
       - "8003:8000"
