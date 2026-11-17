@@ -1,29 +1,37 @@
-
 services:
 
   catalogo:
-    build: ./Servicos/catalogo
+    build: ./Servicos/Catalogo
     container_name: servico_catalogo
     ports:
       - "8001:8000"
+    environment:
+      CATALOGO_DELAY_SECONDS: ${CATALOGO_DELAY_SECONDS:-0}
     networks:
       - rede_catalogo
 
   pedidos:
-    build: ./Servicos/pedidos
+    build: ./Servicos/Pedidos
     container_name: servico_pedidos
     ports:
       - "8002:8000"
+    environment:
+      CATALOGO_URL: http://catalogo:8000
+      CATALOGO_TIMEOUT_SECONDS: ${CATALOGO_TIMEOUT_SECONDS:-3}
+    depends_on:
+      - catalogo
     networks:
       - rede_pedidos
+      - rede_catalogo
 
   pagamento:
-    build: ./Servicos/pagamentos
+    build: ./Servicos/Pagamentos
     container_name: servico_pagamento
     ports:
       - "8003:8000"
     networks:
       - rede_pagamento
+
 
 networks:
   rede_catalogo:
