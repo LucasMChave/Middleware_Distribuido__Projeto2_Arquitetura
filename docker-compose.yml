@@ -1,5 +1,39 @@
-
 services:
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: message_broker
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - rede_catalogo
+      - rede_pedidos
+      - rede_pagamentos
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  middleware:
+    build: ./Middleware
+    container_name: middleware
+    ports:
+      - "8000:8000"
+    environment:
+      CATALOGO_URL: http://catalogo:8000
+      PEDIDOS_URL: http://pedidos:8000
+      PAGAMENTOS_URL: http://pagamentos:8000
+    depends_on:
+      - catalogo
+      - pedidos
+      - pagamentos
+    networks:
+      - rede_catalogo
+      - rede_pedidos
+      - rede_pagamentos
 
   catalogo:
     build: ./Servicos/catalogo
