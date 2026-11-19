@@ -1,24 +1,23 @@
-services:
 
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: message_broker
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: app
-      RABBITMQ_DEFAULT_PASS: senha_dev_123
+services:
+  middleware_sincrono:
+    build: ./Middleware_Sincrono
+    container_name: middleware_sincrono
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "8004:8000"
+    environment:
+      CATALOGO_URL: http://catalogo:8000
+      PEDIDOS_URL: http://pedidos:8000
+      PAGAMENTO_URL: http://pagamentos:8000
+      REQUEST_TIMEOUT: "5"
+    depends_on:
+      - catalogo
+      - pedidos
+      - pagamentos
     networks:
       - rede_catalogo
       - rede_pedidos
       - rede_pagamentos
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   middleware:
     build: ./Middleware
@@ -43,6 +42,26 @@ services:
       - rede_catalogo
       - rede_pedidos
       - rede_pagamentos
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: message_broker
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: app
+      RABBITMQ_DEFAULT_PASS: senha_dev_123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - rede_catalogo
+      - rede_pedidos
+      - rede_pagamentos
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   catalogo:
     build: ./Servicos/catalogo
@@ -72,4 +91,3 @@ networks:
   rede_catalogo:
   rede_pedidos:
   rede_pagamentos:
-
