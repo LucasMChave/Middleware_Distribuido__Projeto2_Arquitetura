@@ -2,7 +2,7 @@
 
 - Base URL: `http://localhost:8004` · Formato: `application/json`
 - OpenAPI interativo: `http://localhost:8004/docs`
-- Serviços integrados (redes internas): Catálogo `catalogo:8000`, Pedidos `pedidos:8000`, Pagamento `pagamento:8000`
+- Serviços integrados (redes internas): Catálogo `catalogo:8000`, Pedidos `pedidos:8000`, Pagamento `pagamentos:8000`
 
 ## Endpoints
 

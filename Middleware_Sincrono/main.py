@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 CATALOGO = os.getenv("CATALOGO_URL", "http://catalogo:8000")
 PEDIDOS = os.getenv("PEDIDOS_URL", "http://pedidos:8000")
-PAGAMENTO = os.getenv("PAGAMENTO_URL", "http://pagamento:8000")
+PAGAMENTO = os.getenv("PAGAMENTO_URL", "http://pagamentos:8000")
 TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5"))
 
 app = FastAPI(title="Middleware de Integracao — E-commerce", version="1.0.0")

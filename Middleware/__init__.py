@@ -1,1 +1,0 @@
-"""Pacote compartilhado de middleware (API hash + camada de integração)."""
