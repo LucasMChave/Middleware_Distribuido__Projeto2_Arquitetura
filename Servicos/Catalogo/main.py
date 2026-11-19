@@ -1,5 +1,20 @@
+
+import os
+import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+
+
+
+class Produto(BaseModel):
+    id: int
+    nome: str
+    preco: float
+    descricao: str
+
+
+# Dados locais do serviço
+produtos = {}
 
 from observabilidade import configurar_observabilidade
 
@@ -13,7 +28,47 @@ PRODUTOS = {
 class Compra(BaseModel):
     quantidade: int = Field(default=1, ge=1)
 
+
+
 @app.get("/health")
+
+def health():
+    return {"servico": "catalogo", "status": "online"}
+
+
+@app.post("/produtos")
+def cadastrar_produto(produto: Produto):
+
+    if produto.id in produtos:
+        raise HTTPException(409, "Produto já cadastrado")
+
+    produtos[produto.id] = produto
+
+    return {
+        "mensagem": "Produto cadastrado",
+        "produto": produto
+    }
+
+
+@app.get("/produtos")
+def listar_produtos():
+    return list(produtos.values())
+
+
+@app.get("/produtos/{produto_id}")
+def consultar_produto(produto_id: int):
+
+    #simular um delay pra testar o timeout
+    atraso = float(os.getenv("CATALOGO_DELAY_SECONDS", "0"))
+
+    if atraso > 0:
+        time.sleep(atraso)
+
+    if produto_id not in produtos:
+        raise HTTPException(404, "Produto não encontrado")
+
+    return produtos[produto_id]
+
 def health(): return {"servico": "catalogo", "status": "online"}
 
 @app.get("/catalogo")
@@ -36,3 +91,4 @@ def comprar_item(produto_id: int, compra: Compra):
       "preco_unitario": produto["preco"], "quantidade": compra.quantidade,
       "subtotal": round(produto["preco"] * compra.quantidade, 2)},
       "proxima_etapa": "Middleware encaminha o item ao Serviço de Pedidos"}
+
