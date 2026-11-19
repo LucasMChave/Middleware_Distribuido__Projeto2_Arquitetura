@@ -3,14 +3,62 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import httpx
+import httpx 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+import asyncio
+from uuid import uuid4
+from contextlib import asynccontextmanager, suppress
+
+from broker import (
+    conectar_broker,
+    desconectar_broker,
+    publicar_mensagem,
+    consumir_mensagens
+)
 
 CATALOGO_URL = os.getenv("CATALOGO_URL", "http://catalogo:8000")
 PEDIDOS_URL = os.getenv("PEDIDOS_URL", "http://pedidos:8000")
 PAGAMENTOS_URL = os.getenv("PAGAMENTOS_URL", "http://pagamentos:8000")
+
+BROKER_URL = os.getenv(
+    "BROKER_URL",
+    "amqp://app:senha_dev_123@rabbitmq:5672/"
+)
+
+FILA_COMPRAS = "fila.compras"
+
+# Armazenamento temporário dos resultados das compras
+COMPRAS = {}
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    await conectar_broker(BROKER_URL)
+
+    # Inicia o consumidor em segundo plano
+    app.state.tarefa_consumidor = asyncio.create_task(
+        consumir_mensagens(
+            FILA_COMPRAS,
+            processar_mensagem_compra
+        )
+    )
+
+    print("Middleware iniciado.")
+    print("Consumidor de compras ativo.")
+
+    yield
+
+    # Encerra o consumidor antes de fechar a conexão
+    app.state.tarefa_consumidor.cancel()
+
+    with suppress(asyncio.CancelledError):
+        await app.state.tarefa_consumidor
+
+    await desconectar_broker()
 
 app = FastAPI(
     title="Middleware de Integração",
@@ -19,6 +67,7 @@ app = FastAPI(
         "Os serviços não se comunicam diretamente."
     ),
     version="1.0.0",
+    lifespan=lifespan
 )
 
 
@@ -177,24 +226,40 @@ async def cancelar_pagamento(pagamento_id: str):
             f"{PAGAMENTOS_URL}/pagamentos/{pagamento_id}/cancelar",
         )
 
+# ---------------------- RABBITMQ (Teste Broker) -----------------------
+
+@app.post("/teste/broker")
+async def testar_broker():
+
+    mensagem = {
+        "evento": "teste",
+        "origem": "middleware",
+        "mensagem": "Comunicação com RabbitMQ funcionando!"
+    }
+
+    await publicar_mensagem(
+        "fila.teste",
+        mensagem
+    )
+
+    return {
+        "status": "mensagem_publicada",
+        "fila": "fila.teste",
+        "dados": mensagem
+    }
 
 # ---------------------- FLUXO DE COMPRA COMPLETO ----------------------
 
-@app.post("/comprar")
-async def comprar(dados: CompraRequest):
-    """
-    Orquestra a compra:
-      1. valida produto/estoque no Catálogo;
-      2. cria o pedido em Pedidos;
-      3. finaliza o pedido;
-      4. cria o pagamento;
-      5. finaliza o pagamento.
 
-    Este fluxo é síncrono e demonstrativo. Não implementa transação distribuída
-    nem garantia de compensação em caso de falha após uma etapa já concluída.
+async def processar_compra(dados: CompraRequest):
     """
+    Executa o fluxo HTTP existente entre os microsserviços.
+    Esta função será chamada pelo consumidor RabbitMQ.
+    """
+
     async with httpx.AsyncClient(timeout=15.0) as client:
-        # 1. Catálogo valida produto, quantidade e estoque.
+
+        # 1. Validar produto no Catálogo
         item_validado = await requisitar(
             client,
             "Catálogo",
@@ -203,7 +268,15 @@ async def comprar(dados: CompraRequest):
             json={"quantidade": dados.quantidade},
         )
 
-        # 2. Middleware envia o snapshot do item para criação do pedido.
+        item = item_validado.get("item")
+
+        if not item:
+            raise HTTPException(
+                status_code=502,
+                detail="O Catálogo não retornou os dados do item."
+            )
+
+        # 2. Criar pedido
         pedido = await requisitar(
             client,
             "Pedidos",
@@ -211,21 +284,19 @@ async def comprar(dados: CompraRequest):
             f"{PEDIDOS_URL}/pedidos",
             json={
                 "cliente_id": dados.cliente_id,
-                "itens": [item_validado],
+                "itens": [item],
             },
         )
 
         pedido_id = pedido.get("pedido_id") or pedido.get("id")
+
         if not pedido_id:
             raise HTTPException(
                 status_code=502,
-                detail={
-                    "erro": "O serviço Pedidos não retornou o identificador do pedido.",
-                    "resposta": pedido,
-                },
+                detail="Pedidos não retornou o identificador."
             )
 
-        # 3. Finaliza a etapa do pedido antes do pagamento.
+        # 3. Finalizar pedido
         pedido_finalizado = await requisitar(
             client,
             "Pedidos",
@@ -233,25 +304,26 @@ async def comprar(dados: CompraRequest):
             f"{PEDIDOS_URL}/pedidos/{pedido_id}/finalizar",
         )
 
-        # 4. Usa o total calculado pelo serviço Pedidos, não um valor enviado pelo cliente.
+        # 4. Consultar preço
         preco = await requisitar(
             client,
             "Pedidos",
             "GET",
             f"{PEDIDOS_URL}/pedidos/{pedido_id}/preco",
         )
-        valor = preco.get("total", preco.get("preco_total", preco.get("valor")))
+
+        valor = preco.get(
+            "total",
+            preco.get("preco_total", preco.get("valor"))
+        )
+
         if valor is None:
             raise HTTPException(
                 status_code=502,
-                detail={
-                    "erro": "Não foi possível identificar o total retornado por Pedidos.",
-                    "resposta": preco,
-                    "pedido_id": pedido_id,
-                },
+                detail="Não foi possível identificar o preço total."
             )
 
-        # 5. Cria e aprova o pagamento simulado.
+        # 5. Criar pagamento
         pagamento = await requisitar(
             client,
             "Pagamentos",
@@ -264,17 +336,18 @@ async def comprar(dados: CompraRequest):
             },
         )
 
-        pagamento_id = pagamento.get("pagamento_id") or pagamento.get("id")
+        pagamento_id = (
+            pagamento.get("pagamento_id")
+            or pagamento.get("id")
+        )
+
         if not pagamento_id:
             raise HTTPException(
                 status_code=502,
-                detail={
-                    "erro": "O serviço Pagamentos não retornou o identificador do pagamento.",
-                    "resposta": pagamento,
-                    "pedido_id": pedido_id,
-                },
+                detail="Pagamentos não retornou o identificador."
             )
 
+        # 6. Finalizar pagamento
         pagamento_finalizado = await requisitar(
             client,
             "Pagamentos",
@@ -291,3 +364,97 @@ async def comprar(dados: CompraRequest):
             "pagamento": pagamento,
             "pagamento_finalizado": pagamento_finalizado,
         }
+
+async def processar_mensagem_compra(mensagem: dict):
+    compra_id = mensagem["compra_id"]
+
+    print(f"[CONSUMIDOR] Processando compra: {compra_id}")
+
+    COMPRAS[compra_id]["status"] = "PROCESSANDO"
+
+    try:
+        dados = CompraRequest(**mensagem["dados"])
+
+        resultado = await processar_compra(dados)
+
+        COMPRAS[compra_id] = {
+            "status": "CONCLUIDA",
+            "resultado": resultado
+        }
+
+        print(f"[CONSUMIDOR] Compra concluída: {compra_id}")
+
+    except Exception as exc:
+
+        detalhe = (
+            exc.detail if isinstance(exc, HTTPException)
+            else str(exc)
+        )
+
+        COMPRAS[compra_id] = {
+            "status": "FALHOU",
+            "erro": detalhe
+        }
+
+        print(f"[CONSUMIDOR] Compra falhou: {compra_id} - {detalhe}")
+
+    
+@app.post("/comprar", status_code=202)
+async def comprar(dados: CompraRequest):
+    """
+    PRODUTOR:
+    Recebe a solicitação e publica uma mensagem.
+    Não executa diretamente a compra.
+    """
+
+    compra_id = str(uuid4())
+
+    mensagem = {
+        "compra_id": compra_id,
+        "dados": dados.model_dump()
+    }
+
+    COMPRAS[compra_id] = {
+        "status": "AGUARDANDO_PROCESSAMENTO"
+    }
+
+    try:
+        await publicar_mensagem(
+            FILA_COMPRAS,
+            mensagem,
+            correlation_id=compra_id
+        )
+
+    except Exception as exc:
+        COMPRAS[compra_id] = {
+            "status": "FALHA_PUBLICACAO",
+            "erro": str(exc)
+        }
+
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível enviar a compra ao RabbitMQ."
+        ) from exc
+
+    return {
+        "mensagem": "Compra enviada para processamento.",
+        "compra_id": compra_id,
+        "status": "AGUARDANDO_PROCESSAMENTO"
+    }
+
+
+@app.get("/compras/{compra_id}")
+async def consultar_compra(compra_id: str):
+
+    compra = COMPRAS.get(compra_id)
+
+    if compra is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Compra não encontrada."
+        )
+
+    return {
+        "compra_id": compra_id,
+        **compra
+    }
