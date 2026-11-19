@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from observabilidade import configurar_observabilidade
+
 app = FastAPI(title="Serviço de Catálogo")
+logger = configurar_observabilidade(app, "catalogo")
 PRODUTOS = {
   1: {"id": 1, "nome": "Hyundai Hb20s 1.0 12v Flex Vision Manual", "descricao": "0KM, Direto de fabrica, com GPS imbutido", "preco": 62990.0, "estoque": 50},
   2: {"id": 2, "nome": "Ford Ka", "descricao": "Usado, Compacto, peças disponiveis separadas", "preco": 13900.0, "estoque": 20},
@@ -27,6 +30,8 @@ def comprar_item(produto_id: int, compra: Compra):
     if not produto: raise HTTPException(404, "Produto não encontrado")
     if compra.quantidade > produto["estoque"]: raise HTTPException(409, "Estoque insuficiente")
     # Prepara os dados; criação efetiva do pedido será responsabilidade do Pedido via middleware.
+    logger.info("compra_validada", extra={"produto_id": produto_id,
+      "quantidade": compra.quantidade, "estoque": produto["estoque"]})
     return {"status": "validado", "item": {"produto_id": produto_id, "nome": produto["nome"],
       "preco_unitario": produto["preco"], "quantidade": compra.quantidade,
       "subtotal": round(produto["preco"] * compra.quantidade, 2)},

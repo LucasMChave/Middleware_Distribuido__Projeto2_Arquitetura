@@ -3,7 +3,10 @@ from pydantic import BaseModel, Field
 from typing import List
 from uuid import uuid4
 
+from observabilidade import configurar_observabilidade
+
 app = FastAPI(title="Serviço de Pedidos")
+logger = configurar_observabilidade(app, "pedidos")
 PEDIDOS = {}
 class Item(BaseModel):
     produto_id: int
@@ -24,6 +27,8 @@ def criar_pedido(dados: NovoPedido):
     total = round(sum(x["preco_unitario"] * x["quantidade"] for x in itens), 2)
     PEDIDOS[pid] = {"pedido_id": pid, "cliente_id": dados.cliente_id,
       "itens": itens, "preco_total": total, "status": "ABERTO"}
+    logger.info("pedido_criado", extra={"pedido_id": pid, "cliente_id": dados.cliente_id,
+      "qtd_itens": len(itens), "preco_total": total})
     return PEDIDOS[pid]
 
 @app.get("/pedidos/{pedido_id}/itens")
@@ -45,5 +50,6 @@ def finalizar_pedido(pedido_id: str):
     if p["status"] != "ABERTO": raise HTTPException(409, f"Pedido está {p['status']}")
     # Finalização local; não efetua pagamento.
     p["status"] = "AGUARDANDO_PAGAMENTO"
+    logger.info("pedido_finalizado", extra={"pedido_id": pedido_id, "valor": p["preco_total"]})
     return {"pedido_id": pedido_id, "status": p["status"],
       "valor": p["preco_total"], "proxima_etapa": "Middleware solicita pagamento"}
