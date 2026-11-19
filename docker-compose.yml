@@ -1,8 +1,7 @@
-
 services:
 
   catalogo:
-    build: ./Servicos/catalogo
+    build: ./Servicos/Catalogo
     container_name: servico_catalogo
     ports:
       - "8001:8000"
@@ -10,7 +9,7 @@ services:
       - rede_catalogo
 
   pedidos:
-    build: ./Servicos/pedidos
+    build: ./Servicos/Pedidos
     container_name: servico_pedidos
     ports:
       - "8002:8000"
@@ -18,19 +17,41 @@ services:
       - rede_pedidos
 
   pagamento:
-    build: ./Servicos/pagamentos
+    build: ./Servicos/Pagamentos
     container_name: servico_pagamento
     ports:
       - "8003:8000"
     networks:
       - rede_pagamento
 
+  middleware:
+    build:
+      context: .
+      dockerfile: Middleware/Dockerfile
+    container_name: middleware
+    ports:
+      - "8004:8000"
+    environment:
+      - CATALOGO_URL=http://catalogo:8000
+      - PEDIDOS_URL=http://pedidos:8000
+      - PAGAMENTO_URL=http://pagamento:8000
+      - REQUEST_TIMEOUT=5
+    depends_on:
+      - catalogo
+      - pedidos
+      - pagamento
+    networks:
+      - rede_catalogo
+      - rede_pedidos
+      - rede_pagamento
+      - rede_publica
+
 networks:
   rede_catalogo:
     internal: true
-
   rede_pedidos:
     internal: true
-
   rede_pagamento:
     internal: true
+  rede_publica:
+    driver: bridge
