@@ -3,6 +3,7 @@ import os
 import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from Middleware.api_hash import generate_api_hash, verify_api_hash
 
 
 
@@ -91,4 +92,10 @@ def comprar_item(produto_id: int, compra: Compra):
       "preco_unitario": produto["preco"], "quantidade": compra.quantidade,
       "subtotal": round(produto["preco"] * compra.quantidade, 2)},
       "proxima_etapa": "Middleware encaminha o item ao Serviço de Pedidos"}
+
+@app.get("/auth/hash")
+def get_hash(actor: str, role: str):
+    if role not in ["cliente", "gerente"]:
+        raise HTTPException(status_code=400, detail="Papel inválido. Use 'cliente' ou 'gerente'.")
+    return {"actor": actor, "role": role, "api_hash": generate_api_hash(actor, role)}
 
