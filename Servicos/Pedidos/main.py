@@ -1,6 +1,3 @@
-import os
-import httpx
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
@@ -10,26 +7,6 @@ from observabilidade import configurar_observabilidade
 app = FastAPI(title="Serviço de Pedidos")
 logger = configurar_observabilidade(app, "pedidos")
 PEDIDOS = {}
-
-
-CATALOGO_URL = os.getenv(
-    "CATALOGO_URL",
-    "http://catalogo:8000"
-)
-
-CATALOGO_TIMEOUT_SECONDS = float(
-    os.getenv("CATALOGO_TIMEOUT_SECONDS", "3.0")
-)
-
-
-class Pedido(BaseModel):
-    id: int
-    cliente_id: int
-    produtos: List[int]
-    valor_total: float
-
-pedidos = {}
-
 
 class Item(BaseModel):
     produto_id: int
@@ -43,68 +20,13 @@ class NovoPedido(BaseModel):
     itens: List[Item] = Field(min_length=1)
 
 
-
-
 @app.get("/health")
 def health():
     return {"servico": "pedidos", "status": "online"}
 
-
-
-def validar_produtos_no_catalogo(produtos: List[int]):
-    """Consulta o catálogo respeitando o limite de tempo configurado."""
-
-    try:
-        with httpx.Client(
-            timeout=CATALOGO_TIMEOUT_SECONDS
-        ) as client:
-
-            for produto_id in produtos:
-                resposta = client.get(
-                    f"{CATALOGO_URL}/produtos/{produto_id}"
-                )
-
-                if resposta.status_code == 404:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Produto {produto_id} não existe no catálogo"
-                    )
-
-                resposta.raise_for_status()
-
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                "Timeout ao consultar o Serviço de Catálogo. "
-                f"Limite: {CATALOGO_TIMEOUT_SECONDS} segundos."
-            )
-        )
-
-    except httpx.HTTPStatusError:
-        raise HTTPException(
-            status_code=502,
-            detail="O Serviço de Catálogo retornou uma resposta inválida."
-        )
-
-    except httpx.RequestError:
-        raise HTTPException(
-            status_code=503,
-            detail="Não foi possível conectar ao Serviço de Catálogo."
-        )
-
-
-@app.post("/pedidos")
-def criar_pedido(pedido: Pedido):
-
-    if pedido.id in pedidos:
-        raise HTTPException(409, "Pedido já cadastrado")
-
-    validar_produtos_no_catalogo(pedido.produtos)
-
-
 @app.post("/pedidos", status_code=201)
 def criar_pedido(dados: NovoPedido):
+
     itens = [x.model_dump() for x in dados.itens]
     pid = str(uuid4())
 
@@ -131,7 +53,6 @@ def criar_pedido(dados: NovoPedido):
     )
 
     return PEDIDOS[pid]
-
 
 @app.get("/pedidos/{pedido_id}/itens")
 def listar_itens(pedido_id: str):
@@ -185,17 +106,6 @@ def finalizar_pedido(pedido_id: str):
         "proxima_etapa": "Middleware solicita pagamento"
     }
 
-
-
-@app.get("/pedidos")
-def listar_pedidos():
-    return list(pedidos.values())
-
-
-@app.get("/pedidos/{pedido_id}")
-def consultar_pedido(pedido_id: int):
-
-    if pedido_id not in pedidos:
 
 @app.post("/pedidos/{pedido_id}/confirmar-pagamento")
 def confirmar_pagamento(pedido_id: str):
